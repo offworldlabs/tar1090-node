@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  readsb:
+    image: ghcr.io/sdr-enthusiasts/docker-readsb-protobuf:latest
+    container_name: readsb
+    hostname: readsb
+    restart: unless-stopped
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    environment:
+      - TZ=UTC
+      - READSB_DEVICE_TYPE=rtlsdr
+      - READSB_GAIN=autogain
+      - READSB_LAT=${RECEIVER_LAT:-0}
+      - READSB_LON=${RECEIVER_LON:-0}
+      - READSB_ALT=${RECEIVER_ALT:-0}
+      - READSB_RX_LOCATION_ACCURACY=2
+      - READSB_STATS_RANGE=true
+      - READSB_NET_ENABLE=true
+      - READSB_NET_CONNECTOR=adsb,feed.adsb.lol,30004,beast_reduce_plus_out
+    ports:
+      - "8080:8080"
+      - "30005:30005"
+    volumes:
+      - readsb-autogain:/run/autogain
+      - readsb-collectd:/run/collectd
+    tmpfs:
+      - /run/readsb:size=64M
+      - /var/log:size=32M
+
+  tar1090:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tar1090
+    hostname: tar1090
+    restart: unless-stopped
+    depends_on:
+      - readsb
+    environment:
+      - TZ=UTC
+      - RECEIVER_LAT=${RECEIVER_LAT:-0}
+      - RECEIVER_LON=${RECEIVER_LON:-0}
+      - RECEIVER_ALT=${RECEIVER_ALT:-0}
+      - ADSBLOL_ENABLED=${ADSBLOL_ENABLED:-true}
+      - ADSBLOL_RADIUS=${ADSBLOL_RADIUS:-40}
+    ports:
+      - "8504:8504"
+    volumes:
+      - ./html/config.js:/usr/local/share/tar1090/html/config.js:ro
+
+volumes:
+  readsb-autogain:
+  readsb-collectd:
