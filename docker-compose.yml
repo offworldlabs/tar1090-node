@@ -17,7 +17,7 @@ services:
       - READSB_RX_LOCATION_ACCURACY=2
       - READSB_STATS_RANGE=true
       - READSB_NET_ENABLE=true
-      - READSB_NET_CONNECTOR=adsb,feed.adsb.lol,30004,beast_reduce_plus_out
+      - READSB_NET_CONNECTOR=feed.adsb.lol,30004,beast_reduce_out
     volumes:
       - readsb-autogain:/run/autogain
       - readsb-collectd:/run/collectd
