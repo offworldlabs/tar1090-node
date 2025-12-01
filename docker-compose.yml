@@ -37,6 +37,7 @@ services:
       - LONG=${RECEIVER_LON:-0}
       - TAR1090_DEFAULTCENTERLAT=${RECEIVER_LAT:-0}
       - TAR1090_DEFAULTCENTERLON=${RECEIVER_LON:-0}
+      - NGINX_PORT=8504
 
 volumes:
   readsb-autogain:
