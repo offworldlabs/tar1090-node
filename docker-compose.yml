@@ -18,15 +18,11 @@ services:
     volumes:
       - readsb-autogain:/run/autogain
       - readsb-collectd:/run/collectd
-      - readsb-data:/run/readsb
     tmpfs:
       - /var/log:size=32M
 
   tar1090:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      network: host
+    image: ghcr.io/sdr-enthusiasts/docker-tar1090:latest
     container_name: tar1090
     hostname: tar1090
     restart: unless-stopped
@@ -35,16 +31,13 @@ services:
       - readsb
     environment:
       - TZ=UTC
-      - RECEIVER_LAT=${RECEIVER_LAT:-0}
-      - RECEIVER_LON=${RECEIVER_LON:-0}
-      - RECEIVER_ALT=${RECEIVER_ALT:-0}
-      - ADSBLOL_ENABLED=${ADSBLOL_ENABLED:-true}
-      - ADSBLOL_RADIUS=${ADSBLOL_RADIUS:-40}
-    volumes:
-      - ./html/config.js:/usr/local/share/tar1090/html/config.js:ro
-      - readsb-data:/run/readsb:ro
+      - BEASTHOST=127.0.0.1
+      - BEASTPORT=30005
+      - LAT=${RECEIVER_LAT:-0}
+      - LONG=${RECEIVER_LON:-0}
+      - TAR1090_DEFAULTCENTERLAT=${RECEIVER_LAT:-0}
+      - TAR1090_DEFAULTCENTERLON=${RECEIVER_LON:-0}
 
 volumes:
   readsb-autogain:
   readsb-collectd:
-  readsb-data:
