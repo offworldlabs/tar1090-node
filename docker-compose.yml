@@ -15,7 +15,7 @@ services:
       - READSB_STATS_RANGE=true
       - READSB_NET_ENABLE=true
       - DISABLE_WEBAPP=true
-      - READSB_NET_CONNECTOR=adsb-feeder.local,30005,beast_in
+      - READSB_NET_CONNECTOR=192.168.8.183,30005,beast_in
     volumes:
       - readsb-autogain:/run/autogain
       - readsb-collectd:/run/collectd
