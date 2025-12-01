@@ -15,6 +15,7 @@ services:
       - READSB_STATS_RANGE=true
       - READSB_NET_ENABLE=true
       - READSB_NET_WEBPORT=8081
+      - READSB_NET_CONNECTOR=adsb-feeder.local,30005,beast_in
     volumes:
       - readsb-autogain:/run/autogain
       - readsb-collectd:/run/collectd
