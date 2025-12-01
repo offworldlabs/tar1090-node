@@ -17,7 +17,8 @@ RUN chmod +x /usr/local/share/tar1090/*.sh
 COPY docker/lighttpd-tar1090.conf /etc/lighttpd/conf-available/89-tar1090.conf
 RUN lighttpd-enable-mod tar1090
 
-RUN sed -i 's/server.port\s*=.*/server.port = 8504/' /etc/lighttpd/lighttpd.conf
+RUN sed -i 's/server.port\s*=.*/server.port = 8504/' /etc/lighttpd/lighttpd.conf && \
+    sed -i 's|server.document-root\s*=.*|server.document-root = "/usr/local/share/tar1090/html/"|' /etc/lighttpd/lighttpd.conf
 
 COPY <<'EOF' /usr/local/bin/start.sh
 #!/bin/bash
