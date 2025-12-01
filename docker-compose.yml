@@ -26,18 +26,18 @@ services:
     container_name: tar1090
     hostname: tar1090
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "8504:80"
     depends_on:
       - readsb
     environment:
       - TZ=UTC
-      - BEASTHOST=127.0.0.1
+      - BEASTHOST=readsb
       - BEASTPORT=30005
       - LAT=${RECEIVER_LAT:-0}
       - LONG=${RECEIVER_LON:-0}
       - TAR1090_DEFAULTCENTERLAT=${RECEIVER_LAT:-0}
       - TAR1090_DEFAULTCENTERLON=${RECEIVER_LON:-0}
-      - NGINX_PORT=8504
 
 volumes:
   readsb-autogain:
