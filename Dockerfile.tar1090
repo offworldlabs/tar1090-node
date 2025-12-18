@@ -10,8 +10,7 @@ RUN apt-get update && apt-get install -y \
 
 COPY proxy/server.js /opt/proxy/server.js
 
-COPY docker/lighttpd-proxy.conf /etc/lighttpd/conf-available/90-proxy.conf
-RUN lighttpd-enable-mod proxy
+COPY docker/lighttpd-proxy.conf /etc/lighttpd/conf-enabled/90-proxy.conf
 
 COPY docker/entrypoint.sh /opt/entrypoint.sh
 RUN chmod +x /opt/entrypoint.sh
