@@ -21,6 +21,29 @@ This install script assumes Raspbian / Debian / Ubunutu and will not work on sys
 tar1090 is not a readsb / dump1090-fa replacement, it merely adds an additional webinterface for an existing readsb or dump1090-fa installation.
 dump1090-mutability installations should work as well, aircraft details will be limited though.
 
+## Building Docker Images (CI/CD)
+
+To build and publish Docker images via GitHub Actions:
+
+**Manual build (dev/testing):**
+1. Go to Actions → `docker-build` workflow
+2. Click "Run workflow"
+3. Set `tag` (e.g., `dev` or `v1.0.0`)
+4. Set `publish` to `true` to push to GHCR
+
+**Release build (production):**
+1. Create and push a version tag:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+2. The `release` workflow will automatically build and publish to `ghcr.io/offworldlabs/tar1090-node:<tag>`
+
+**Pull the image:**
+```bash
+docker pull ghcr.io/offworldlabs/tar1090-node:v1.0.0
+```
+
 ## Installation
 
 ```
