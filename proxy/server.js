@@ -80,31 +80,49 @@ function convertAdsbLolToReadsb(adsbLolData) {
   };
 }
 
+async function fetchAdsbLol() {
+  console.log('Fetching from adsb.lol...');
+  const adsbLolData = await fetchUrl(ADSBLOL_API);
+  const convertedData = convertAdsbLolToReadsb(adsbLolData);
+  console.log(`adsb.lol: ${convertedData.aircraft?.length || 0} aircraft`);
+  return { data: convertedData, source: 'adsb.lol' };
+}
+
 async function getAircraftData() {
+  let localData = null;
+
+  // Try local readsb first
   try {
     console.log('Attempting to fetch from local readsb...');
-    const localData = await fetchUrl(READSB_URL);
-    console.log(`✓ Local readsb: ${localData.aircraft?.length || 0} aircraft`);
-    return { data: localData, source: 'local' };
+    localData = await fetchUrl(READSB_URL);
+    console.log(`Local readsb: ${localData.aircraft?.length || 0} aircraft`);
   } catch (error) {
-    console.log(`✗ Local readsb failed: ${error.message}`);
+    console.log(`Local readsb failed: ${error.message}`);
+  }
 
-    if (!ADSBLOL_ENABLED) {
-      console.log('✗ adsb.lol fallback disabled');
-      throw new Error('Local feed unavailable and fallback disabled');
-    }
+  // Return local data if we have aircraft
+  if (localData && localData.aircraft?.length > 0) {
+    return { data: localData, source: 'local' };
+  }
 
+  // Try adsb.lol fallback if enabled
+  if (ADSBLOL_ENABLED) {
+    const reason = localData ? '0 aircraft from local' : 'local fetch failed';
+    console.log(`Falling back to adsb.lol (${reason})...`);
     try {
-      console.log('Attempting fallback to adsb.lol...');
-      const adsbLolData = await fetchUrl(ADSBLOL_API);
-      const convertedData = convertAdsbLolToReadsb(adsbLolData);
-      console.log(`✓ adsb.lol fallback: ${convertedData.aircraft?.length || 0} aircraft`);
-      return { data: convertedData, source: 'adsb.lol' };
+      return await fetchAdsbLol();
     } catch (fallbackError) {
-      console.log(`✗ adsb.lol fallback failed: ${fallbackError.message}`);
-      throw new Error('Both local and fallback feeds unavailable');
+      console.log(`adsb.lol fallback failed: ${fallbackError.message}`);
     }
   }
+
+  // Return local data even if empty (if we got a response)
+  if (localData) {
+    return { data: localData, source: 'local' };
+  }
+
+  // Both failed
+  throw new Error('Both local and fallback feeds unavailable');
 }
 
 const server = http.createServer(async (req, res) => {
