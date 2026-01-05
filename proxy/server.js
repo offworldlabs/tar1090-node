@@ -6,7 +6,7 @@ const ADSBLOL_ENABLED = process.env.ADSBLOL_ENABLED === 'true';
 const RECEIVER_LAT = parseFloat(process.env.RECEIVER_LAT || '0');
 const RECEIVER_LON = parseFloat(process.env.RECEIVER_LON || '0');
 const ADSBLOL_RADIUS = parseInt(process.env.ADSBLOL_RADIUS || '40');
-const PORT = parseInt(process.env.PROXY_PORT || '3000');
+const PORT = parseInt(process.env.PROXY_PORT || '3005');
 
 const ADSBLOL_API = `https://api.adsb.lol/v2/lat/${RECEIVER_LAT}/lon/${RECEIVER_LON}/dist/${ADSBLOL_RADIUS}`;
 
