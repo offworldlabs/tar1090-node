@@ -1,0 +1,7 @@
+{
+  "version": "tar1090-node",
+  "refresh": 1000,
+  "history": 120,
+  "binCraft": false,
+  "zstd": false
+}
