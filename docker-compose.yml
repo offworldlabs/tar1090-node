@@ -45,7 +45,7 @@ services:
       - RECEIVER_LAT=${RECEIVER_LAT:-0}
       - RECEIVER_LON=${RECEIVER_LON:-0}
       - ADSBLOL_RADIUS=${ADSBLOL_RADIUS:-40}
-      - PROXY_PORT=3000
+      - PROXY_PORT=3005
 
 volumes:
   readsb-autogain:
