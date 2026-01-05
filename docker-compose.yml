@@ -25,7 +25,7 @@ services:
   tar1090:
     build:
       context: .
-      dockerfile: Dockerfile.tar1090
+      dockerfile: Dockerfile
     container_name: tar1090
     hostname: tar1090
     restart: unless-stopped
