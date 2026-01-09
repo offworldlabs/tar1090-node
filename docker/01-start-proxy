@@ -1,0 +1,4 @@
+#!/command/with-contenv bash
+# Start the adsb.lol fallback proxy
+echo "[01-start-proxy] Starting aircraft data proxy on port ${PROXY_PORT:-3005}..."
+node /opt/proxy/server.js &

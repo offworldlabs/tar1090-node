@@ -1,52 +1,35 @@
 services:
-  readsb:
-    image: ghcr.io/sdr-enthusiasts/docker-readsb-protobuf:latest
-    container_name: readsb
-    hostname: readsb
+  tar1090:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tar1090
+    hostname: tar1090
     restart: unless-stopped
-    network_mode: host
+    # network_mode: host  # Use on Linux; doesn't work on macOS Docker
+    ports:
+      - "8080:80"  # tar1090 web UI (use 8080 on macOS, 80 on Linux)
     environment:
       - TZ=UTC
+      # readsb config (built into docker-tar1090)
       - READSB_DEVICE_TYPE=none
+      - READSB_NET_ENABLE=true
+      - READSB_NET_CONNECTOR=${READSB_NET_CONNECTOR:-}
       - READSB_LAT=${RECEIVER_LAT:-0}
       - READSB_LON=${RECEIVER_LON:-0}
       - READSB_ALT=${RECEIVER_ALT:-0}
       - READSB_RX_LOCATION_ACCURACY=2
       - READSB_STATS_RANGE=true
-      - READSB_NET_ENABLE=true
-      - DISABLE_WEBAPP=true
-      - READSB_NET_CONNECTOR=192.168.8.183,30005,beast_in
-    volumes:
-      - readsb-autogain:/run/autogain
-      - readsb-collectd:/run/collectd
-    tmpfs:
-      - /var/log:size=32M
-
-  tar1090:
-    build:
-      context: .
-      dockerfile: Dockerfile.tar1090
-    container_name: tar1090
-    hostname: tar1090
-    restart: unless-stopped
-    network_mode: host
-    depends_on:
-      - readsb
-    environment:
-      - TZ=UTC
-      - BEASTHOST=127.0.0.1
-      - BEASTPORT=30005
+      # tar1090 map config
       - LAT=${RECEIVER_LAT:-0}
       - LONG=${RECEIVER_LON:-0}
       - TAR1090_DEFAULTCENTERLAT=${RECEIVER_LAT:-0}
       - TAR1090_DEFAULTCENTERLON=${RECEIVER_LON:-0}
-      - READSB_URL=http://127.0.0.1:80/data/aircraft.json
+      # adsb.lol proxy config
       - ADSBLOL_ENABLED=${ADSBLOL_ENABLED:-false}
       - RECEIVER_LAT=${RECEIVER_LAT:-0}
       - RECEIVER_LON=${RECEIVER_LON:-0}
       - ADSBLOL_RADIUS=${ADSBLOL_RADIUS:-40}
       - PROXY_PORT=3005
-
-volumes:
-  readsb-autogain:
-  readsb-collectd:
+    tmpfs:
+      - /var/log:size=32M

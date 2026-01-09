@@ -1,35 +1,17 @@
-FROM debian:bullseye-slim
+FROM ghcr.io/sdr-enthusiasts/docker-tar1090:latest
 
-RUN apt-get update && apt-get install -y \
-    nginx \
-    lighttpd \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install Node.js for our adsb.lol proxy
+RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /usr/local/share/tar1090/html
+# Copy our proxy server (reads from file, avoids circular dependency)
+COPY proxy/server.js /opt/proxy/server.js
 
-COPY html/ /usr/local/share/tar1090/html/
-COPY *.conf /usr/local/share/tar1090/
-COPY *.sh /usr/local/share/tar1090/
-RUN chmod +x /usr/local/share/tar1090/*.sh
+# Runtime nginx config injection - runs AFTER 07-nginx-configure regenerates config
+# Must be numbered > 07 to run after nginx config is generated
+# (Build-time sed doesn't persist because tar1090 regenerates nginx config at startup)
+COPY docker/08-inject-proxy-config /etc/s6-overlay/startup.d/08-inject-proxy-config
+RUN chmod +x /etc/s6-overlay/startup.d/08-inject-proxy-config
 
-COPY docker/lighttpd-tar1090.conf /etc/lighttpd/conf-available/89-tar1090.conf
-RUN lighttpd-enable-mod tar1090
-
-RUN sed -i 's/server.port\s*=.*/server.port = 8504/' /etc/lighttpd/lighttpd.conf && \
-    sed -i 's|server.document-root\s*=.*|server.document-root = "/usr/local/share/tar1090/html/"|' /etc/lighttpd/lighttpd.conf
-
-COPY <<'EOF' /usr/local/bin/start.sh
-#!/bin/bash
-set -e
-
-echo "Starting tar1090 web interface on port 8504..."
-lighttpd -D -f /etc/lighttpd/lighttpd.conf
-EOF
-
-RUN chmod +x /usr/local/bin/start.sh
-
-EXPOSE 8504
-
-CMD ["/usr/local/bin/start.sh"]
+# Start proxy as a background service using s6-overlay cont-init
+COPY docker/01-start-proxy /etc/cont-init.d/01-start-proxy
+RUN chmod +x /etc/cont-init.d/01-start-proxy
