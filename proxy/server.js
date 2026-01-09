@@ -1,12 +1,13 @@
 const http = require('http');
 const https = require('https');
+const fs = require('fs').promises;
 
-const READSB_URL = process.env.READSB_URL || 'http://127.0.0.1:80/data/aircraft.json';
+const LOCAL_DATA_PATH = process.env.LOCAL_DATA_PATH || '/run/readsb/aircraft.json';
 const ADSBLOL_ENABLED = process.env.ADSBLOL_ENABLED === 'true';
 const RECEIVER_LAT = parseFloat(process.env.RECEIVER_LAT || '0');
 const RECEIVER_LON = parseFloat(process.env.RECEIVER_LON || '0');
 const ADSBLOL_RADIUS = parseInt(process.env.ADSBLOL_RADIUS || '40');
-const PORT = parseInt(process.env.PROXY_PORT || '3000');
+const PORT = parseInt(process.env.PROXY_PORT || '3005');
 
 const ADSBLOL_API = `https://api.adsb.lol/v2/lat/${RECEIVER_LAT}/lon/${RECEIVER_LON}/dist/${ADSBLOL_RADIUS}`;
 
@@ -80,31 +81,58 @@ function convertAdsbLolToReadsb(adsbLolData) {
   };
 }
 
-async function getAircraftData() {
+async function fetchAdsbLol() {
+  console.log('Fetching from adsb.lol...');
+  const adsbLolData = await fetchUrl(ADSBLOL_API);
+  const convertedData = convertAdsbLolToReadsb(adsbLolData);
+  console.log(`adsb.lol: ${convertedData.aircraft?.length || 0} aircraft`);
+
+  // Write to local file so tar1090's backend process can read it
   try {
-    console.log('Attempting to fetch from local readsb...');
-    const localData = await fetchUrl(READSB_URL);
-    console.log(`✓ Local readsb: ${localData.aircraft?.length || 0} aircraft`);
-    return { data: localData, source: 'local' };
+    await fs.writeFile(LOCAL_DATA_PATH, JSON.stringify(convertedData));
+  } catch (err) {
+    console.log(`Warning: Could not write to ${LOCAL_DATA_PATH}: ${err.message}`);
+  }
+
+  return { data: convertedData, source: 'adsb.lol' };
+}
+
+async function readLocalFile() {
+  try {
+    const data = await fs.readFile(LOCAL_DATA_PATH, 'utf8');
+    return JSON.parse(data);
   } catch (error) {
-    console.log(`✗ Local readsb failed: ${error.message}`);
+    return null;
+  }
+}
 
-    if (!ADSBLOL_ENABLED) {
-      console.log('✗ adsb.lol fallback disabled');
-      throw new Error('Local feed unavailable and fallback disabled');
-    }
+async function getAircraftData() {
+  // Try local file first (readsb writes to /run/readsb/aircraft.json)
+  const localData = await readLocalFile();
 
+  if (localData && localData.aircraft?.length > 0) {
+    console.log(`Local file: ${localData.aircraft.length} aircraft`);
+    return { data: localData, source: 'local' };
+  }
+
+  // Try adsb.lol fallback if enabled
+  if (ADSBLOL_ENABLED) {
+    const reason = localData ? '0 aircraft from local' : 'local file not found';
+    console.log(`Falling back to adsb.lol (${reason})...`);
     try {
-      console.log('Attempting fallback to adsb.lol...');
-      const adsbLolData = await fetchUrl(ADSBLOL_API);
-      const convertedData = convertAdsbLolToReadsb(adsbLolData);
-      console.log(`✓ adsb.lol fallback: ${convertedData.aircraft?.length || 0} aircraft`);
-      return { data: convertedData, source: 'adsb.lol' };
+      return await fetchAdsbLol();
     } catch (fallbackError) {
-      console.log(`✗ adsb.lol fallback failed: ${fallbackError.message}`);
-      throw new Error('Both local and fallback feeds unavailable');
+      console.log(`adsb.lol fallback failed: ${fallbackError.message}`);
     }
   }
+
+  // Return local data even if empty (if we got a response)
+  if (localData) {
+    return { data: localData, source: 'local' };
+  }
+
+  // No data sources available
+  throw new Error('No data sources available');
 }
 
 const server = http.createServer(async (req, res) => {
@@ -136,7 +164,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Aircraft data proxy listening on port ${PORT}`);
-  console.log(`Local feed: ${READSB_URL}`);
+  console.log(`Local data file: ${LOCAL_DATA_PATH}`);
   console.log(`adsb.lol fallback: ${ADSBLOL_ENABLED ? 'enabled' : 'disabled'}`);
   if (ADSBLOL_ENABLED) {
     console.log(`adsb.lol API: ${ADSBLOL_API}`);
