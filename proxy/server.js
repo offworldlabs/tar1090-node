@@ -1,7 +1,8 @@
 const http = require('http');
 const https = require('https');
+const fs = require('fs').promises;
 
-const READSB_URL = process.env.READSB_URL || 'http://127.0.0.1:80/data/aircraft.json';
+const LOCAL_DATA_PATH = process.env.LOCAL_DATA_PATH || '/run/readsb/aircraft.json';
 const ADSBLOL_ENABLED = process.env.ADSBLOL_ENABLED === 'true';
 const RECEIVER_LAT = parseFloat(process.env.RECEIVER_LAT || '0');
 const RECEIVER_LON = parseFloat(process.env.RECEIVER_LON || '0');
@@ -88,26 +89,27 @@ async function fetchAdsbLol() {
   return { data: convertedData, source: 'adsb.lol' };
 }
 
-async function getAircraftData() {
-  let localData = null;
-
-  // Try local readsb first
+async function readLocalFile() {
   try {
-    console.log('Attempting to fetch from local readsb...');
-    localData = await fetchUrl(READSB_URL);
-    console.log(`Local readsb: ${localData.aircraft?.length || 0} aircraft`);
+    const data = await fs.readFile(LOCAL_DATA_PATH, 'utf8');
+    return JSON.parse(data);
   } catch (error) {
-    console.log(`Local readsb failed: ${error.message}`);
+    return null;
   }
+}
 
-  // Return local data if we have aircraft
+async function getAircraftData() {
+  // Try local file first (readsb writes to /run/readsb/aircraft.json)
+  const localData = await readLocalFile();
+
   if (localData && localData.aircraft?.length > 0) {
+    console.log(`Local file: ${localData.aircraft.length} aircraft`);
     return { data: localData, source: 'local' };
   }
 
   // Try adsb.lol fallback if enabled
   if (ADSBLOL_ENABLED) {
-    const reason = localData ? '0 aircraft from local' : 'local fetch failed';
+    const reason = localData ? '0 aircraft from local' : 'local file not found';
     console.log(`Falling back to adsb.lol (${reason})...`);
     try {
       return await fetchAdsbLol();
@@ -121,8 +123,8 @@ async function getAircraftData() {
     return { data: localData, source: 'local' };
   }
 
-  // Both failed
-  throw new Error('Both local and fallback feeds unavailable');
+  // No data sources available
+  throw new Error('No data sources available');
 }
 
 const server = http.createServer(async (req, res) => {
@@ -154,7 +156,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Aircraft data proxy listening on port ${PORT}`);
-  console.log(`Local feed: ${READSB_URL}`);
+  console.log(`Local data file: ${LOCAL_DATA_PATH}`);
   console.log(`adsb.lol fallback: ${ADSBLOL_ENABLED ? 'enabled' : 'disabled'}`);
   if (ADSBLOL_ENABLED) {
     console.log(`adsb.lol API: ${ADSBLOL_API}`);

@@ -38,20 +38,29 @@ COPY <<'EOF' /usr/local/bin/start.sh
 #!/bin/bash
 set -e
 
-echo "Starting aircraft data proxy on port ${PROXY_PORT:-3005}..."
-node /opt/proxy/server.js &
-PROXY_PID=$!
-
 cleanup() {
     echo "Shutting down..."
     kill $PROXY_PID 2>/dev/null || true
+    kill $LIGHTTPD_PID 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGTERM SIGINT
 
+echo "Starting aircraft data proxy on port ${PROXY_PORT:-3005}..."
+node /opt/proxy/server.js &
+PROXY_PID=$!
+
 sleep 1
 echo "Starting tar1090 web interface on port 80..."
-lighttpd -D -f /etc/lighttpd/lighttpd.conf
+lighttpd -D -f /etc/lighttpd/lighttpd.conf &
+LIGHTTPD_PID=$!
+
+# Wait for either process to exit
+wait -n
+exit_code=$?
+echo "Process exited with code $exit_code, shutting down..."
+cleanup
+exit $exit_code
 EOF
 
 RUN chmod +x /usr/local/bin/start.sh
