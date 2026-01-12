@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     # network_mode: host  # Use on Linux; doesn't work on macOS Docker
     ports:
-      - "8080:80"  # tar1090 web UI (use 8080 on macOS, 80 on Linux)
+      - "8078:80"  # tar1090 web UI
     environment:
       - TZ=UTC
       # readsb config (built into docker-tar1090)
