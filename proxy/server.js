@@ -146,11 +146,16 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(JSON.stringify(data));
     } catch (error) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
+      console.log(`Data fetch failed: ${error.message}`);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'X-Data-Source': 'none'
+      });
       res.end(JSON.stringify({
-        error: error.message,
-        aircraft: [],
-        now: Date.now() / 1000
+        now: Date.now() / 1000,
+        messages: 0,
+        aircraft: []
       }));
     }
   } else if (req.url === '/health') {
