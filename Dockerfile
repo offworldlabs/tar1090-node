@@ -12,6 +12,6 @@ COPY proxy/server.js /opt/proxy/server.js
 COPY docker/08-inject-proxy-config /etc/s6-overlay/startup.d/08-inject-proxy-config
 RUN chmod +x /etc/s6-overlay/startup.d/08-inject-proxy-config
 
-# Start proxy as a background service using s6-overlay cont-init
-COPY docker/01-start-proxy /etc/cont-init.d/01-start-proxy
-RUN chmod +x /etc/cont-init.d/01-start-proxy
+# Run proxy as a proper s6-overlay service (auto-restart, logging, graceful shutdown)
+COPY docker/services.d/proxy /etc/services.d/proxy
+RUN chmod +x /etc/services.d/proxy/run
