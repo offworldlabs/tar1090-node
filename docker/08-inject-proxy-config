@@ -1,0 +1,22 @@
+#!/command/with-contenv bash
+# Inject proxy location block AFTER tar1090's 07-nginx-configure runs
+# This must run at startup (not build time) because 07-nginx-configure regenerates the config
+
+echo "[08-inject-proxy-config] Injecting adsb.lol proxy config into nginx..."
+
+# Add proxy location for aircraft.json
+sed -i '/include \/etc\/nginx\/nginx-tar1090-webroot.conf;/i\  location = /data/aircraft.json { proxy_pass http://127.0.0.1:3005/data/aircraft.json; }' \
+    /etc/nginx/sites-enabled/tar1090
+
+# Disable binCraft in receiver.json so frontend uses JSON format (required for adsb.lol)
+# Uses nginx sub_filter to modify the response on-the-fly
+sed -i '/include \/etc\/nginx\/nginx-tar1090-webroot.conf;/i\  location = /data/receiver.json { alias /run/readsb/receiver.json; sub_filter_types application/json; sub_filter '\''\"binCraft\": true'\'' '\''\"binCraft\": false'\''; sub_filter '\''\"zstd\": true'\'' '\''\"zstd\": false'\''; sub_filter_once off; }' \
+    /etc/nginx/sites-enabled/tar1090
+
+# Verify the injection worked
+if grep -q "proxy_pass" /etc/nginx/sites-enabled/tar1090; then
+    echo "[08-inject-proxy-config] Proxy config injected successfully"
+else
+    echo "[08-inject-proxy-config] ERROR: Failed to inject proxy config"
+    exit 1
+fi
