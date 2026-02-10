@@ -1,4 +1,4 @@
-FROM ghcr.io/sdr-enthusiasts/docker-tar1090:latest
+FROM ghcr.io/sdr-enthusiasts/docker-tar1090:latest-build-1410
 
 # Install Node.js for our adsb.lol proxy
 RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*
