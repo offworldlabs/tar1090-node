@@ -19,6 +19,13 @@ const CACHE_TTL_MS = parseInt(process.env.ADSBLOL_CACHE_TTL_MS || '3000');
 const UPSTREAM_TIMEOUT_MS = parseInt(process.env.ADSBLOL_TIMEOUT_MS || '3000');
 // How long we keep serving the last good response while adsb.lol is failing.
 const MAX_STALE_MS = parseInt(process.env.ADSBLOL_MAX_STALE_MS || '60000');
+// adsb.lol refuses requests whose User-Agent is missing or too generic, with
+// 403 "User-Agent too generic; include valid contact info." Node's https.get
+// sends no User-Agent at all unless one is set, so every request failed closed
+// - the fallback was dead fleet-wide and looked like an empty sky. Override
+// with a real contact address via ADSBLOL_USER_AGENT where one is available.
+const USER_AGENT = process.env.ADSBLOL_USER_AGENT ||
+  'retina-node/1.0 (+https://github.com/offworldlabs/tar1090-node)';
 
 const ADSBLOL_API = `https://api.adsb.lol/v2/lat/${RECEIVER_LAT}/lon/${RECEIVER_LON}/dist/${ADSBLOL_RADIUS}`;
 
@@ -38,10 +45,20 @@ function fetchUrl(url) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
 
-    const req = client.get(url, { timeout: UPSTREAM_TIMEOUT_MS }, (res) => {
+    const req = client.get(url, {
+      timeout: UPSTREAM_TIMEOUT_MS,
+      headers: { 'User-Agent': USER_AGENT }
+    }, (res) => {
       if (res.statusCode !== 200) {
-        res.resume();
-        reject(new Error(`HTTP ${res.statusCode}`));
+        // Read the body rather than discarding it: adsb.lol states the reason
+        // for a refusal there, and throwing it away is why a hard 403 was
+        // indistinguishable from "no aircraft nearby" for as long as it was.
+        let err = '';
+        res.on('data', chunk => { if (err.length < 200) err += chunk; });
+        res.on('end', () => {
+          const detail = err.trim().replace(/\s+/g, ' ').slice(0, 120);
+          reject(new Error(`HTTP ${res.statusCode}${detail ? ` - ${detail}` : ''}`));
+        });
         return;
       }
 
