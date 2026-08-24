@@ -9,15 +9,38 @@ const RECEIVER_LON = parseFloat(process.env.RECEIVER_LON || '0');
 const ADSBLOL_RADIUS = parseInt(process.env.ADSBLOL_RADIUS || '40');
 const PORT = parseInt(process.env.PROXY_PORT || '3005');
 
+// How long an adsb.lol response may be reused before we refetch. Consumers
+// correct for staleness by projecting positions forward from the payload's own
+// `now`, but blah2-api's lib/extrapolation.js refuses to project more than 5 s,
+// so this must stay comfortably inside that budget.
+const CACHE_TTL_MS = parseInt(process.env.ADSBLOL_CACHE_TTL_MS || '3000');
+// Must stay below the consumer's HTTP timeout (blah2-api uses 5000 ms) so a
+// slow upstream degrades into stale-but-served rather than a client timeout.
+const UPSTREAM_TIMEOUT_MS = parseInt(process.env.ADSBLOL_TIMEOUT_MS || '3000');
+// How long we keep serving the last good response while adsb.lol is failing.
+const MAX_STALE_MS = parseInt(process.env.ADSBLOL_MAX_STALE_MS || '60000');
+
 const ADSBLOL_API = `https://api.adsb.lol/v2/lat/${RECEIVER_LAT}/lon/${RECEIVER_LON}/dist/${ADSBLOL_RADIUS}`;
+
+// Last good adsb.lol response: { payload, fetchedAt }. `payload.now` is the
+// fetch time and is never restamped on serve - consumers rely on it to work out
+// how stale each position is.
+let cache = null;
+// Shared promise for an in-progress fetch, so concurrent requests collapse into
+// a single upstream call instead of one call each.
+let inFlight = null;
+
+function emptyPayload() {
+  return { now: Date.now() / 1000, messages: 0, aircraft: [] };
+}
 
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
-    const timeout = 5000;
 
-    const req = client.get(url, { timeout }, (res) => {
+    const req = client.get(url, { timeout: UPSTREAM_TIMEOUT_MS }, (res) => {
       if (res.statusCode !== 200) {
+        res.resume();
         reject(new Error(`HTTP ${res.statusCode}`));
         return;
       }
@@ -46,6 +69,8 @@ function convertAdsbLolToReadsb(adsbLolData) {
   const aircraft = adsbLolData.ac || [];
 
   return {
+    // Fetch time, not serve time. Consumers subtract each aircraft's seen_pos
+    // from this to recover when the position was actually observed.
     now: Date.now() / 1000,
     messages: 0,
     aircraft: aircraft.map(ac => ({
@@ -81,20 +106,25 @@ function convertAdsbLolToReadsb(adsbLolData) {
   };
 }
 
-async function fetchAdsbLol() {
-  console.log('Fetching from adsb.lol...');
-  const adsbLolData = await fetchUrl(ADSBLOL_API);
-  const convertedData = convertAdsbLolToReadsb(adsbLolData);
-  console.log(`adsb.lol: ${convertedData.aircraft?.length || 0} aircraft`);
-
-  // Write to local file so tar1090's backend process can read it
-  try {
-    await fs.writeFile(LOCAL_DATA_PATH, JSON.stringify(convertedData));
-  } catch (err) {
-    console.log(`Warning: Could not write to ${LOCAL_DATA_PATH}: ${err.message}`);
+// Refreshes the cache, collapsing concurrent callers onto one upstream request.
+// Never rejects - a failed refresh leaves the previous cache in place.
+function refreshRemote() {
+  if (!inFlight) {
+    console.log('Fetching from adsb.lol...');
+    inFlight = fetchUrl(ADSBLOL_API)
+      .then((raw) => {
+        const payload = convertAdsbLolToReadsb(raw);
+        cache = { payload, fetchedAt: Date.now() };
+        console.log(`adsb.lol: ${payload.aircraft.length} aircraft`);
+      })
+      .catch((err) => {
+        console.log(`adsb.lol fetch failed: ${err.message}`);
+      })
+      .finally(() => {
+        inFlight = null;
+      });
   }
-
-  return { data: convertedData, source: 'adsb.lol' };
+  return inFlight;
 }
 
 async function readLocalFile() {
@@ -107,60 +137,61 @@ async function readLocalFile() {
 }
 
 async function getAircraftData() {
-  // Try local file first (readsb writes to /run/readsb/aircraft.json)
+  // A local receiver, when it has anything to say, always wins - and it is read
+  // fresh on every request rather than cached, since readsb rewrites it ~1/s.
   const localData = await readLocalFile();
 
   if (localData && localData.aircraft?.length > 0) {
-    console.log(`Local file: ${localData.aircraft.length} aircraft`);
-    return { data: localData, source: 'local' };
+    return { data: localData, source: 'local', ageMs: 0, stale: false };
   }
 
-  // Try adsb.lol fallback if enabled
-  if (ADSBLOL_ENABLED) {
-    const reason = localData ? '0 aircraft from local' : 'local file not found';
-    console.log(`Falling back to adsb.lol (${reason})...`);
-    try {
-      return await fetchAdsbLol();
-    } catch (fallbackError) {
-      console.log(`adsb.lol fallback failed: ${fallbackError.message}`);
+  if (!ADSBLOL_ENABLED) {
+    return { data: localData || emptyPayload(), source: localData ? 'local' : 'none', ageMs: 0, stale: false };
+  }
+
+  const age = cache ? Date.now() - cache.fetchedAt : Infinity;
+  if (age >= CACHE_TTL_MS) {
+    await refreshRemote();
+  }
+
+  if (cache) {
+    const servedAge = Date.now() - cache.fetchedAt;
+    if (servedAge <= MAX_STALE_MS) {
+      return {
+        data: cache.payload,
+        source: 'adsb.lol',
+        ageMs: servedAge,
+        stale: servedAge >= CACHE_TTL_MS
+      };
     }
   }
 
-  // Return local data even if empty (if we got a response)
-  if (localData) {
-    return { data: localData, source: 'local' };
-  }
-
-  // No data sources available
-  throw new Error('No data sources available');
+  // No usable remote data. Report that honestly rather than passing off an
+  // empty sky as a successful read.
+  return { data: localData || emptyPayload(), source: 'none', ageMs: 0, stale: false };
 }
 
 const server = http.createServer(async (req, res) => {
   if (req.url === '/data/aircraft.json') {
-    try {
-      const { data, source } = await getAircraftData();
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'X-Data-Source': source
-      });
-      res.end(JSON.stringify(data));
-    } catch (error) {
-      console.log(`Data fetch failed: ${error.message}`);
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'X-Data-Source': 'none'
-      });
-      res.end(JSON.stringify({
-        now: Date.now() / 1000,
-        messages: 0,
-        aircraft: []
-      }));
-    }
+    const { data, source, ageMs, stale } = await getAircraftData();
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+      'X-Data-Source': source,
+      'X-Data-Age-Ms': String(ageMs),
+      'X-Data-Stale': stale ? 'true' : 'false'
+    });
+    res.end(JSON.stringify(data));
   } else if (req.url === '/health') {
+    const age = cache ? Date.now() - cache.fetchedAt : null;
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok' }));
+    res.end(JSON.stringify({
+      status: 'ok',
+      adsblol: ADSBLOL_ENABLED ? 'enabled' : 'disabled',
+      cacheAgeMs: age,
+      cachedAircraft: cache ? cache.payload.aircraft.length : 0
+    }));
   } else {
     res.writeHead(404);
     res.end('Not Found');
@@ -173,5 +204,6 @@ server.listen(PORT, () => {
   console.log(`adsb.lol fallback: ${ADSBLOL_ENABLED ? 'enabled' : 'disabled'}`);
   if (ADSBLOL_ENABLED) {
     console.log(`adsb.lol API: ${ADSBLOL_API}`);
+    console.log(`cache TTL: ${CACHE_TTL_MS} ms, upstream timeout: ${UPSTREAM_TIMEOUT_MS} ms`);
   }
 });
