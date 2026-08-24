@@ -9,6 +9,14 @@ const RECEIVER_LON = parseFloat(process.env.RECEIVER_LON || '0');
 const ADSBLOL_RADIUS = parseInt(process.env.ADSBLOL_RADIUS || '40');
 const PORT = parseInt(process.env.PROXY_PORT || '3005');
 
+// adsb.lol refuses requests whose User-Agent is missing or too generic, with
+// 403 "User-Agent too generic; include valid contact info." Node's https.get
+// sends no User-Agent at all unless one is set, so every request failed closed
+// - the fallback was dead fleet-wide and looked like an empty sky. Override
+// with a real contact address via ADSBLOL_USER_AGENT where one is available.
+const USER_AGENT = process.env.ADSBLOL_USER_AGENT ||
+  'retina-node/1.0 (+https://github.com/offworldlabs/tar1090-node)';
+
 const ADSBLOL_API = `https://api.adsb.lol/v2/lat/${RECEIVER_LAT}/lon/${RECEIVER_LON}/dist/${ADSBLOL_RADIUS}`;
 
 function fetchUrl(url) {
@@ -16,9 +24,17 @@ function fetchUrl(url) {
     const client = url.startsWith('https') ? https : http;
     const timeout = 5000;
 
-    const req = client.get(url, { timeout }, (res) => {
+    const req = client.get(url, { timeout, headers: { 'User-Agent': USER_AGENT } }, (res) => {
       if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}`));
+        // Read the body rather than discarding it: adsb.lol states the reason
+        // for a refusal there, and throwing it away is why a hard 403 was
+        // indistinguishable from "no aircraft nearby" for as long as it was.
+        let err = '';
+        res.on('data', chunk => { if (err.length < 200) err += chunk; });
+        res.on('end', () => {
+          const detail = err.trim().replace(/\s+/g, ' ').slice(0, 120);
+          reject(new Error(`HTTP ${res.statusCode}${detail ? ` - ${detail}` : ''}`));
+        });
         return;
       }
 
