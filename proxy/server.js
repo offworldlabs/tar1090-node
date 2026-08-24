@@ -36,6 +36,10 @@ let cache = null;
 // Shared promise for an in-progress fetch, so concurrent requests collapse into
 // a single upstream call instead of one call each.
 let inFlight = null;
+// When the last upstream attempt started, recorded regardless of outcome.
+// cache.fetchedAt only advances on success, so gating refreshes on it alone
+// leaves a failing upstream unthrottled - see getAircraftData().
+let lastAttemptAt = 0;
 
 function emptyPayload() {
   return { now: Date.now() / 1000, messages: 0, aircraft: [] };
@@ -128,6 +132,7 @@ function convertAdsbLolToReadsb(adsbLolData) {
 // Never rejects - a failed refresh leaves the previous cache in place.
 function refreshRemote() {
   if (!inFlight) {
+    lastAttemptAt = Date.now();
     console.log('Fetching from adsb.lol...');
     inFlight = fetchUrl(ADSBLOL_API)
       .then((raw) => {
@@ -167,8 +172,16 @@ async function getAircraftData() {
     return { data: localData || emptyPayload(), source: localData ? 'local' : 'none', ageMs: 0, stale: false };
   }
 
-  const age = cache ? Date.now() - cache.fetchedAt : Infinity;
-  if (age >= CACHE_TTL_MS) {
+  // Refresh only when the cached payload has aged out AND we have not already
+  // tried within this window. Without the second condition a failing upstream
+  // never advances cache.fetchedAt, so `age` stays Infinity and every request
+  // starts its own fetch - inFlight collapses concurrent callers but not
+  // sequential ones. That reverts to the full client poll rate precisely when
+  // adsb.lol is least able to serve it: measured at ~33 upstream requests/min
+  // during the 403 outage, against ~14/min once the cache was being populated.
+  const cacheAge = cache ? Date.now() - cache.fetchedAt : Infinity;
+  const sinceAttempt = Date.now() - lastAttemptAt;
+  if (cacheAge >= CACHE_TTL_MS && sinceAttempt >= CACHE_TTL_MS) {
     await refreshRemote();
   }
 
@@ -191,6 +204,11 @@ async function getAircraftData() {
 
 const server = http.createServer(async (req, res) => {
   if (req.url === '/data/aircraft.json') {
+    // getAircraftData() is contracted never to throw or reject: readLocalFile()
+    // swallows its own errors and refreshRemote() carries an internal .catch.
+    // That contract is what makes it safe to call without a try/catch here - in
+    // an async http.createServer callback an unhandled rejection surfaces as an
+    // unhandledRejection rather than a clean response. Keep it if you edit them.
     const { data, source, ageMs, stale } = await getAircraftData();
     res.writeHead(200, {
       'Content-Type': 'application/json',
