@@ -27,9 +27,28 @@ const MAX_STALE_MS = parseInt(process.env.ADSBLOL_MAX_STALE_MS || '60000');
 const USER_AGENT = process.env.ADSBLOL_USER_AGENT ||
   'retina-node/1.0 (+https://github.com/offworldlabs/tar1090-node)';
 
-const ADSBLOL_API = `https://api.adsb.lol/v2/lat/${RECEIVER_LAT}/lon/${RECEIVER_LON}/dist/${ADSBLOL_RADIUS}`;
+// Ordered, comma-separated list of adsb.lol-format sources, tried in order
+// until one answers. RETINA's own service at adsb.retina.fm serves the same v2
+// envelope, so it needs no conversion changes. Default keeps a node that is
+// told nothing on adsb.lol alone.
+const ADSB_UPSTREAMS = (process.env.ADSB_UPSTREAMS || 'https://api.adsb.lol')
+  .split(',')
+  .map(entry => entry.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 
-// Last good adsb.lol response: { payload, fetchedAt }. `payload.now` is the
+function upstreamUrl(base) {
+  return `${base}/v2/lat/${RECEIVER_LAT}/lon/${RECEIVER_LON}/dist/${ADSBLOL_RADIUS}`;
+}
+
+function hostOf(base) {
+  try {
+    return new URL(base).host;
+  } catch {
+    return base;
+  }
+}
+
+// Last good remote response: { payload, fetchedAt, source }. `payload.now` is the
 // fetch time and is never restamped on serve - consumers rely on it to work out
 // how stale each position is.
 let cache = null;
@@ -45,12 +64,12 @@ function emptyPayload() {
   return { now: Date.now() / 1000, messages: 0, aircraft: [] };
 }
 
-function fetchUrl(url) {
+function fetchUrl(url, timeoutMs = UPSTREAM_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
 
     const req = client.get(url, {
-      timeout: UPSTREAM_TIMEOUT_MS,
+      timeout: timeoutMs,
       headers: { 'User-Agent': USER_AGENT }
     }, (res) => {
       if (res.statusCode !== 200) {
@@ -128,25 +147,44 @@ function convertAdsbLolToReadsb(adsbLolData) {
   };
 }
 
-// Refreshes the cache, collapsing concurrent callers onto one upstream request.
-// Never rejects - a failed refresh leaves the previous cache in place.
+// Tries each upstream in turn and caches the first that answers, collapsing
+// concurrent callers onto one refresh. Never rejects - a refresh where nothing
+// answers leaves the previous cache in place, as the single-upstream version
+// did.
+//
+// The chain shares ONE time budget rather than a timeout per source: two
+// sources at UPSTREAM_TIMEOUT_MS each would be 6 s worst case, past blah2-api's
+// 5 s client timeout, turning a slow upstream into a consumer-side failure
+// instead of the stale-but-served degradation that timeout is chosen to give.
 function refreshRemote() {
-  if (!inFlight) {
-    lastAttemptAt = Date.now();
-    console.log('Fetching from adsb.lol...');
-    inFlight = fetchUrl(ADSBLOL_API)
-      .then((raw) => {
-        const payload = convertAdsbLolToReadsb(raw);
-        cache = { payload, fetchedAt: Date.now() };
-        console.log(`adsb.lol: ${payload.aircraft.length} aircraft`);
-      })
-      .catch((err) => {
-        console.log(`adsb.lol fetch failed: ${err.message}`);
-      })
-      .finally(() => {
-        inFlight = null;
-      });
+  if (inFlight) {
+    return inFlight;
   }
+
+  lastAttemptAt = Date.now();
+  const deadline = lastAttemptAt + UPSTREAM_TIMEOUT_MS;
+
+  inFlight = (async () => {
+    for (const base of ADSB_UPSTREAMS) {
+      const host = hostOf(base);
+      const remaining = deadline - Date.now();
+      if (remaining < 250) {
+        break;
+      }
+
+      try {
+        const payload = convertAdsbLolToReadsb(await fetchUrl(upstreamUrl(base), remaining));
+        cache = { payload, fetchedAt: Date.now(), source: host };
+        console.log(`${host}: ${payload.aircraft.length} aircraft`);
+        return;
+      } catch (err) {
+        console.log(`${host} fetch failed: ${err.message}`);
+      }
+    }
+  })().finally(() => {
+    inFlight = null;
+  });
+
   return inFlight;
 }
 
@@ -190,7 +228,7 @@ async function getAircraftData() {
     if (servedAge <= MAX_STALE_MS) {
       return {
         data: cache.payload,
-        source: 'adsb.lol',
+        source: cache.source,
         ageMs: servedAge,
         stale: servedAge >= CACHE_TTL_MS
       };
@@ -237,9 +275,9 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Aircraft data proxy listening on port ${PORT}`);
   console.log(`Local data file: ${LOCAL_DATA_PATH}`);
-  console.log(`adsb.lol fallback: ${ADSBLOL_ENABLED ? 'enabled' : 'disabled'}`);
+  console.log(`Remote fallback: ${ADSBLOL_ENABLED ? 'enabled' : 'disabled'}`);
   if (ADSBLOL_ENABLED) {
-    console.log(`adsb.lol API: ${ADSBLOL_API}`);
-    console.log(`cache TTL: ${CACHE_TTL_MS} ms, upstream timeout: ${UPSTREAM_TIMEOUT_MS} ms`);
+    ADSB_UPSTREAMS.forEach((base, i) => console.log(`  upstream ${i + 1}: ${upstreamUrl(base)}`));
+    console.log(`cache TTL: ${CACHE_TTL_MS} ms, chain budget: ${UPSTREAM_TIMEOUT_MS} ms`);
   }
 });
