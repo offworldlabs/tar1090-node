@@ -576,3 +576,25 @@ MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE RISK AS
 TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS WITH YOU.  SHOULD THE
 PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING,
 REPAIR OR CORRECTION.
+
+## License
+
+This repository is a fork of [tar1090](https://github.com/wiedehopf/tar1090)
+by Matthias Wirth, which is based on
+[dump1090](https://github.com/flightaware/dump1090). The tar1090 code is
+licensed under the GNU General Public License, version 2 or (at your option)
+any later version; see [LICENSE](LICENSE). Those files keep that licence and
+their notices.
+
+The files added by Offworld Labs, `proxy/`, `docker/`, `Dockerfile`,
+`docker-compose.yml`, `.env.example`, `test/proxy-chain.test.js` and
+`.github/workflows/`, are Copyright (C) 2026 Offworld Labs and licensed under
+the GNU Affero General Public License, version 3 or (at your option) any
+later version; see
+[LICENSE-AGPL-3.0](LICENSE-AGPL-3.0). They are distributed WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.
+
+The combined work is distributed under version 3 of the GNU General Public
+License together with version 3 of the GNU Affero General Public License,
+as section 13 of each permits.
